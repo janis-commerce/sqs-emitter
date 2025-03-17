@@ -136,21 +136,17 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrl,
-				Entries: [
-					{
-						MessageBody: JSON.stringify({ foo: 'bar' }),
-						MessageAttributes: {
-							'janis-client': {
-								DataType: 'String',
-								StringValue: 'defaultClient'
-							},
-							sqsName: {
-								DataType: 'String',
-								StringValue: sqsName
-							}
-						}
+				MessageBody: JSON.stringify({ foo: 'bar' }),
+				MessageAttributes: {
+					'janis-client': {
+						DataType: 'String',
+						StringValue: 'defaultClient'
+					},
+					sqsName: {
+						DataType: 'String',
+						StringValue: sqsName
 					}
-				]
+				}
 			}, true).length, 1);
 		});
 
@@ -191,21 +187,17 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrlFifo,
-				Entries: [
-					{
-						MessageBody: JSON.stringify({ s3ContentPath, bar: 'bar' }),
-						MessageAttributes: {
-							'janis-client': {
-								DataType: 'String',
-								StringValue: 'defaultClient'
-							},
-							sqsName: {
-								DataType: 'String',
-								StringValue: sqsName
-							}
-						}
+				MessageBody: JSON.stringify({ s3ContentPath, bar: 'bar' }),
+				MessageAttributes: {
+					'janis-client': {
+						DataType: 'String',
+						StringValue: 'defaultClient'
+					},
+					sqsName: {
+						DataType: 'String',
+						StringValue: sqsName
 					}
-				]
+				}
 			}, true).length, 1);
 		});
 
@@ -224,21 +216,17 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrlFifo,
-				Entries: [
-					{
-						MessageBody: JSON.stringify({ foo: 'bar' }),
-						MessageAttributes: {
-							'janis-client': {
-								DataType: 'String',
-								StringValue: 'defaultClient'
-							},
-							sqsName: {
-								DataType: 'String',
-								StringValue: sqsName
-							}
-						}
+				MessageBody: JSON.stringify({ foo: 'bar' }),
+				MessageAttributes: {
+					'janis-client': {
+						DataType: 'String',
+						StringValue: 'defaultClient'
+					},
+					sqsName: {
+						DataType: 'String',
+						StringValue: sqsName
 					}
-				]
+				}
 			}, true).length, 1);
 		});
 
@@ -257,28 +245,24 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrl,
-				Entries: [
-					{
-						MessageBody: JSON.stringify({
-							foo: 'bar'
-						}),
-						MessageAttributes: {
-							'janis-client': {
-								DataType: 'String',
-								StringValue: 'defaultClient'
-							},
-							sqsName: {
-								DataType: 'String',
-								StringValue: sqsName
-							},
-							foo: {
-								DataType: 'String',
-								StringValue: 'bar'
-							}
-						},
-						Subject: 'test'
+				MessageBody: JSON.stringify({
+					foo: 'bar'
+				}),
+				MessageAttributes: {
+					'janis-client': {
+						DataType: 'String',
+						StringValue: 'defaultClient'
+					},
+					sqsName: {
+						DataType: 'String',
+						StringValue: sqsName
+					},
+					foo: {
+						DataType: 'String',
+						StringValue: 'bar'
 					}
-				]
+				},
+				Subject: 'test'
 			}, true).length, 1);
 
 			assert.deepStrictEqual(result, singleEventResponse);
@@ -302,29 +286,25 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrlFifo,
-				Entries: [
-					{
-						MessageBody: JSON.stringify({ foo: 'bar' }),
-						MessageAttributes: {
-							'janis-client': {
-								DataType: 'String',
-								StringValue: 'defaultClient'
-							},
-							sqsName: {
-								DataType: 'String',
-								StringValue: sqsName
-							},
-							foo: {
-								DataType: 'String',
-								StringValue: 'bar'
-							}
-						},
-						Subject: 'test',
-						MessageGroupId: 'group1',
-						MessageDeduplicationId: 'dedup1',
-						MessageStructure: 'json'
+				MessageBody: JSON.stringify({ foo: 'bar' }),
+				MessageAttributes: {
+					'janis-client': {
+						DataType: 'String',
+						StringValue: 'defaultClient'
+					},
+					sqsName: {
+						DataType: 'String',
+						StringValue: sqsName
+					},
+					foo: {
+						DataType: 'String',
+						StringValue: 'bar'
 					}
-				]
+				},
+				Subject: 'test',
+				MessageGroupId: 'group1',
+				MessageDeduplicationId: 'dedup1',
+				MessageStructure: 'json'
 			}, true).length, 1);
 
 			assert.deepStrictEqual(result, singleEventResponse);
@@ -357,10 +337,6 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 0);
 			assert.deepEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
-
-			// assertRamListResourceCommand();
-			// assertSsmGetParameterCommand();
-
 		});
 
 	});
