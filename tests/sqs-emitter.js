@@ -35,7 +35,7 @@ describe('SqsEmitter', () => {
 	const sampleSqsUrlFifo = `${sampleSqsUrl}.fifo`;
 	const parameterNameStoreArn = `arn:aws:ssm:us-east-1:123456789012:parameter/${parameterName}`;
 	const roleArn = 'arn:aws:iam::1234567890:role/defaultRoleName';
-	const s3ContentPath = `sqsContent/defaultClient/service-name/MySQSName/2025/03/06/${randomId}.json`;
+	const contentS3Path = `sqsContent/defaultClient/service-name/MySQSName/2025/03/06/${randomId}.json`;
 
 	const credentials = {
 		AccessKeyId: 'accessKeyIdTest',
@@ -81,7 +81,7 @@ describe('SqsEmitter', () => {
 	const assertS3PutObjectCommand = (body, bucketName = buckets[0].bucketName) => {
 		assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand, {
 			Bucket: bucketName,
-			Key: s3ContentPath,
+			Key: contentS3Path,
 			Body: JSON.stringify(body)
 		}, true).length, 1);
 	};
@@ -188,7 +188,7 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrlFifo,
-				MessageBody: JSON.stringify({ s3ContentPath, bar: 'bar' }),
+				MessageBody: JSON.stringify({ contentS3Path, bar: 'bar' }),
 				MessageAttributes: {
 					'janis-client': {
 						DataType: 'String',
@@ -774,7 +774,7 @@ describe('SqsEmitter', () => {
 				Entries: [
 					{
 						Id: '1',
-						MessageBody: JSON.stringify({ s3ContentPath, bar: 'bar' }),
+						MessageBody: JSON.stringify({ contentS3Path, bar: 'bar' }),
 						MessageAttributes: {
 							'janis-client': {
 								DataType: 'String',
@@ -855,7 +855,7 @@ describe('SqsEmitter', () => {
 				Entries: [
 					{
 						Id: '1',
-						MessageBody: JSON.stringify({ s3ContentPath, bar: 'bar' }),
+						MessageBody: JSON.stringify({ contentS3Path, bar: 'bar' }),
 						MessageAttributes: {
 							'janis-client': {
 								DataType: 'String',
