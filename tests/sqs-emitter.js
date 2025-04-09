@@ -9,13 +9,9 @@ const { mockClient } = require('aws-sdk-client-mock');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 const { RAMClient, ListResourcesCommand } = require('@aws-sdk/client-ram');
-const { STSClient, AssumeRoleCommand } = require('@aws-sdk/client-sts');
 const { SQSClient, SendMessageBatchCommand, SendMessageCommand } = require('@aws-sdk/client-sqs');
 
-const {
-	SqsEmitter
-	// SqsEmitterError
-} = require('../lib');
+const { SqsEmitter } = require('../lib');
 const ParameterStore = require('../lib/helpers/parameter-store');
 
 describe('SqsEmitter', () => {
@@ -24,7 +20,6 @@ describe('SqsEmitter', () => {
 	let ssmMock;
 	let ramMock;
 	let s3Mock;
-	let stsMock;
 	let clock;
 
 	const fakeDate = new Date(2025, 2, 6);
@@ -34,25 +29,16 @@ describe('SqsEmitter', () => {
 	const sampleSqsUrl = `https://sqs.us-east-1.amazonaws.com/123456789012/${sqsName}`;
 	const sampleSqsUrlFifo = `${sampleSqsUrl}.fifo`;
 	const parameterNameStoreArn = `arn:aws:ssm:us-east-1:123456789012:parameter/${parameterName}`;
-	const roleArn = 'arn:aws:iam::1234567890:role/defaultRoleName';
 	const contentS3Path = `sqsContent/defaultClient/service-name/MySQSName/2025/03/06/${randomId}.json`;
-
-	const credentials = {
-		AccessKeyId: 'accessKeyIdTest',
-		SecretAccessKey: 'secretAccessKeyTest',
-		SessionToken: 'sessionTokenTest'
-	};
 
 	const buckets = [
 		{
 			bucketName: 'sample-bucket-name-us-east-1',
-			roleArn,
 			region: 'us-east-1',
 			default: true
 		},
 		{
 			bucketName: 'sample-bucket-name-us-west-1',
-			roleArn,
 			region: 'us-west-1'
 		}
 	];
@@ -70,14 +56,6 @@ describe('SqsEmitter', () => {
 		}, true).length, 1);
 	};
 
-	const assertStsAssumeRoleCommand = (callsNumber = 1) => {
-		assert.deepStrictEqual(stsMock.commandCalls(AssumeRoleCommand, {
-			RoleArn: buckets[0].roleArn,
-			RoleSessionName: 'service-name',
-			DurationSeconds: 1800
-		}, true).length, callsNumber);
-	};
-
 	const assertS3PutObjectCommand = (body, bucketName = buckets[0].bucketName) => {
 		assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand, {
 			Bucket: bucketName,
@@ -91,7 +69,6 @@ describe('SqsEmitter', () => {
 		sqsMock = mockClient(SQSClient);
 		ramMock = mockClient(RAMClient);
 		s3Mock = mockClient(S3Client);
-		stsMock = mockClient(STSClient);
 		clock = sinon.useFakeTimers(fakeDate.getTime());
 
 		this.sqsEmitter = new SqsEmitter();
@@ -106,7 +83,6 @@ describe('SqsEmitter', () => {
 		ssmMock.restore();
 		ramMock.restore();
 		s3Mock.restore();
-		stsMock.restore();
 		clock.restore();
 		sinon.restore();
 		ParameterStore.clearCache();
@@ -163,10 +139,6 @@ describe('SqsEmitter', () => {
 				}
 			});
 
-			stsMock.on(AssumeRoleCommand).resolves({
-				Credentials: credentials
-			});
-
 			s3Mock.on(PutObjectCommand).resolves({
 				ETag: '5d41402abc4b2a76b9719d911017c590'
 			});
@@ -186,9 +158,27 @@ describe('SqsEmitter', () => {
 
 			assert.deepStrictEqual(result, singleEventFifoResponse);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
+			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
+			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 1);
+
+			assertRamListResourceCommand();
+			assertSsmGetParameterCommand();
+			assertS3PutObjectCommand({
+				bar: 'bar',
+				foo: 'x'.repeat(256 * 1024)
+			});
+
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrlFifo,
-				MessageBody: JSON.stringify({ contentS3Path, bar: 'bar' }),
+				MessageBody: JSON.stringify({
+					contentS3Location: {
+						path: contentS3Path,
+						bucketName: buckets[0].bucketName,
+						region: buckets[0].region
+					},
+					bar: 'bar'
+				}),
 				MessageAttributes: {
 					'janis-client': {
 						DataType: 'String',
@@ -313,7 +303,6 @@ describe('SqsEmitter', () => {
 
 		it('Should fail if session with clientCode is missing', async () => {
 
-			stsMock.on(AssumeRoleCommand);
 			s3Mock.on(PutObjectCommand);
 			sqsMock.on(SendMessageBatchCommand);
 			ssmMock.on(GetParameterCommand);
@@ -334,7 +323,6 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(result, undefined);
 			assert.deepEqual(ramMock.commandCalls(ListResourcesCommand).length, 0);
 			assert.deepEqual(ssmMock.commandCalls(GetParameterCommand).length, 0);
-			assert.deepEqual(stsMock.commandCalls(AssumeRoleCommand).length, 0);
 			assert.deepEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
 			assert.deepEqual(sqsMock.commandCalls(SendMessageCommand).length, 0);
 			assert.deepEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
@@ -502,7 +490,6 @@ describe('SqsEmitter', () => {
 
 		it('Should reject if fails retrieve parameter name from ram resources', async () => {
 
-			stsMock.on(AssumeRoleCommand);
 			s3Mock.on(PutObjectCommand);
 			sqsMock.on(SendMessageBatchCommand);
 			ssmMock.on(GetParameterCommand);
@@ -521,7 +508,6 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(result, undefined);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 0);
-			assert.deepStrictEqual(stsMock.commandCalls(AssumeRoleCommand).length, 0);
 			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 0);
 			assertRamListResourceCommand();
@@ -529,7 +515,6 @@ describe('SqsEmitter', () => {
 
 		it('Should reject if fails retrieve parameter from ssm parameter store', async () => {
 
-			stsMock.on(AssumeRoleCommand);
 			s3Mock.on(PutObjectCommand);
 			sqsMock.on(SendMessageBatchCommand);
 
@@ -552,7 +537,6 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(result, undefined);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
-			assert.deepStrictEqual(stsMock.commandCalls(AssumeRoleCommand).length, 0);
 			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 0);
 			assert.deepEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
@@ -580,10 +564,6 @@ describe('SqsEmitter', () => {
 				}
 			});
 
-			stsMock.on(AssumeRoleCommand).resolves({
-				Credentials: credentials
-			});
-
 			const result = await assert.rejects(this.sqsEmitter.publishEvents(sampleSqsUrl, [
 				{
 					payloadFixedProperties: ['bar'],
@@ -592,19 +572,17 @@ describe('SqsEmitter', () => {
 						foo: 'x'.repeat(256 * 1024)
 					}
 				}
-			]), { message: 'Failed to upload to both default and provisional buckets' });
+			]), { message: 'Failed to upload to all provided buckets' });
 
 			assert.deepStrictEqual(result, undefined);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
-			assert.deepStrictEqual(stsMock.commandCalls(AssumeRoleCommand).length, 2);
 			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 2);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 0);
 		});
 
 		it('Should reject if the que url format is not valid', async () => {
 
-			stsMock.on(AssumeRoleCommand);
 			s3Mock.on(PutObjectCommand);
 			sqsMock.on(SendMessageBatchCommand);
 			ssmMock.on(GetParameterCommand);
@@ -625,7 +603,6 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(result, undefined);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 0);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 0);
-			assert.deepStrictEqual(stsMock.commandCalls(AssumeRoleCommand).length, 0);
 			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 0);
 
@@ -633,7 +610,6 @@ describe('SqsEmitter', () => {
 
 		it('Should reject if cannot find resources with the parameter name in the ARN', async () => {
 
-			stsMock.on(AssumeRoleCommand);
 			s3Mock.on(PutObjectCommand);
 			sqsMock.on(SendMessageBatchCommand);
 			ssmMock.on(GetParameterCommand);
@@ -655,7 +631,6 @@ describe('SqsEmitter', () => {
 			assert.deepEqual(result, undefined);
 			assert.deepEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
 			assert.deepEqual(ssmMock.commandCalls(GetParameterCommand).length, 0);
-			assert.deepEqual(stsMock.commandCalls(AssumeRoleCommand).length, 0);
 			assert.deepEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
 			assert.deepEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 0);
 			assert.deepEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
@@ -663,47 +638,7 @@ describe('SqsEmitter', () => {
 
 		});
 
-		it('Should reject if fail to retrieve credentials to assume role', async () => {
-
-			sqsMock.on(SendMessageBatchCommand);
-			s3Mock.on(PutObjectCommand);
-
-			ramMock.on(ListResourcesCommand).resolves({
-				resources: [{ arn: parameterNameStoreArn }]
-			});
-
-			ssmMock.on(GetParameterCommand).resolves({
-				Parameter: {
-					Value: JSON.stringify(buckets)
-				}
-			});
-
-			stsMock.on(AssumeRoleCommand)
-				.rejects(new Error('Not authorized'));
-
-			const result = await assert.rejects(this.sqsEmitter.publishEvents(sampleSqsUrl, [
-				{
-					payloadFixedProperties: ['bar'],
-					content: {
-						bar: 'bar',
-						foo: 'x'.repeat(256 * 1024)
-					}
-				}
-			]), { message: `Error while trying to assume role arn ${roleArn}: Not authorized` });
-
-			assert.deepStrictEqual(result, undefined);
-			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
-			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
-			assert.deepStrictEqual(stsMock.commandCalls(AssumeRoleCommand).length, 1);
-			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
-			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 0);
-
-			assertRamListResourceCommand();
-			assertSsmGetParameterCommand();
-			assertStsAssumeRoleCommand(1);
-		});
-
-		it('Should upload a payload to the provisional S3 bucket if the default bucket upload fails', async () => {
+		it('Should upload a payload to some provisional S3 bucket if the default bucket upload fails', async () => {
 
 			const content = {
 				bar: 'bar',
@@ -731,10 +666,6 @@ describe('SqsEmitter', () => {
 				}
 			});
 
-			stsMock.on(AssumeRoleCommand).resolves({
-				Credentials: credentials
-			});
-
 			s3Mock.on(PutObjectCommand)
 				.rejectsOnce(new Error('Error fetching S3'))
 				.resolvesOnce({
@@ -759,13 +690,11 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(result, partiallySentResponse);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
-			assert.deepStrictEqual(stsMock.commandCalls(AssumeRoleCommand).length, 2);
 			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 2);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 1);
 
 			assertRamListResourceCommand();
 			assertSsmGetParameterCommand();
-			assertStsAssumeRoleCommand(2);
 			assertS3PutObjectCommand(content, buckets[0].bucketName);
 			assertS3PutObjectCommand(content, buckets[1].bucketName);
 
@@ -774,7 +703,14 @@ describe('SqsEmitter', () => {
 				Entries: [
 					{
 						Id: '1',
-						MessageBody: JSON.stringify({ contentS3Path, bar: 'bar' }),
+						MessageBody: JSON.stringify({
+							contentS3Location: {
+								path: contentS3Path,
+								bucketName: buckets[1].bucketName,
+								region: buckets[1].region
+							},
+							bar: 'bar'
+						}),
 						MessageAttributes: {
 							'janis-client': {
 								DataType: 'String',
@@ -813,10 +749,6 @@ describe('SqsEmitter', () => {
 				}
 			});
 
-			stsMock.on(AssumeRoleCommand).resolves({
-				Credentials: credentials
-			});
-
 			s3Mock.on(PutObjectCommand).resolves({
 				ETag: '5d41402abc4b2a76b9719d911017c590'
 			});
@@ -842,20 +774,25 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(result, partiallySentResponse);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
-			assert.deepStrictEqual(stsMock.commandCalls(AssumeRoleCommand).length, 1);
 			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 1);
 
 			assertRamListResourceCommand();
 			assertSsmGetParameterCommand();
-			assertStsAssumeRoleCommand();
 			assertS3PutObjectCommand(content);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand, {
 				QueueUrl: sampleSqsUrl,
 				Entries: [
 					{
 						Id: '1',
-						MessageBody: JSON.stringify({ contentS3Path, bar: 'bar' }),
+						MessageBody: JSON.stringify({
+							contentS3Location: {
+								path: contentS3Path,
+								bucketName: buckets[0].bucketName,
+								region: buckets[0].region
+							},
+							bar: 'bar'
+						}),
 						MessageAttributes: {
 							'janis-client': {
 								DataType: 'String',
@@ -902,7 +839,6 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(result, multiEventResponse);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 0);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 0);
-			assert.deepStrictEqual(stsMock.commandCalls(AssumeRoleCommand).length, 0);
 			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 2);
 
