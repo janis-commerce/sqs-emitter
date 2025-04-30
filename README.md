@@ -10,19 +10,11 @@
 npm install @janiscommerce/sqs-emitter
 ```
 
-### Install peer dependencies
-```sh
-# Install as devDependency if you run your code in AWS Lambda, which already includes the SDK
-npm install --dev @aws-sdk/client-sqs@3
-```
-
 ## Usage
 ```js
 const SqsEmitter = require('@janiscommerce/sqs-emitter');
 
 ```
-
-> Why? This is to avoid installing the SDK in production and freezing the SDK version in this package
 
 ### SQS Emitter
 
@@ -34,7 +26,7 @@ const SqsEmitter = require('@janiscommerce/sqs-emitter');
 
 > The `payloadFixedProperties` event must be an array of strings containing the properties that must be mandatorily sent in the content. This is to improve error management, as these properties will allow us to identify which data failed and make a decision accordingly.
 
-**!important:** The session is required to obtain the `clientCode` and construct the `contentS3Path` for payloads that exceed the maximum SQS message size limit.
+#### **Important:** The session is required to obtain the `clientCode` and construct the `contentS3Path` for payloads that exceed the maximum SQS message size limit.
 
 #### Publish single event
 
@@ -43,7 +35,7 @@ const { SqsEmitter } = require('@janiscommerce/sqs-emitter');
 
 const sqsEmitter = this.session.getSessionInstance(SqsEmitter);
 
-const result = await sqsEmitter.publishEvent('http://sqs-url', {
+const result = await sqsEmitter.publishEvent('https://sqs.us-east-1.amazonaws.com/123456789012/MySQSName', {
   content: {
     id: '1'
   },
@@ -73,7 +65,7 @@ const { SqsEmitter } = require('@janiscommerce/sqs-emitter');
 
 const sqsEmitter = this.session.getSessionInstance(SqsEmitter);
 
-const result = await sqsEmitter.publishEvents('http://sqs-url', [
+const result = await sqsEmitter.publishEvents('https://sqs.us-east-1.amazonaws.com/123456789012/MySQSName', [
   {
     content: {
       id: '1'

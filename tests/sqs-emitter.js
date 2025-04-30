@@ -267,7 +267,7 @@ describe('SqsEmitter', () => {
 
 			const result = await this.sqsEmitter.publishEvent(sampleSqsUrlFifo, {
 				content: { foo: 'bar' },
-				attributes: { foo: 'bar' },
+				attributes: { foo: 'bar', bar: true },
 				subject: 'test',
 				messageGroupId: 'group1',
 				messageDeduplicationId: 'dedup1',
@@ -290,6 +290,10 @@ describe('SqsEmitter', () => {
 					foo: {
 						DataType: 'String',
 						StringValue: 'bar'
+					},
+					bar: {
+						DataType: 'String',
+						StringValue: 'true'
 					}
 				},
 				Subject: 'test',
@@ -310,15 +314,13 @@ describe('SqsEmitter', () => {
 
 			this.sqsEmitter.session = {};
 
-			const result = await assert.rejects(this.sqsEmitter.publishEvents(sampleSqsUrl, [
-				{
-					payloadFixedProperties: ['bar'],
-					content: {
-						bar: 'bar',
-						foo: 'x'.repeat(256 * 1024)
-					}
+			const result = await assert.rejects(this.sqsEmitter.publishEvent(sampleSqsUrl, {
+				payloadFixedProperties: ['bar'],
+				content: {
+					bar: 'bar',
+					foo: 'x'.repeat(256 * 1024)
 				}
-			]), { message: 'The session must have a clientCode' });
+			}), { message: 'The session must have a clientCode' });
 
 			assert.deepStrictEqual(result, undefined);
 			assert.deepEqual(ramMock.commandCalls(ListResourcesCommand).length, 0);
@@ -334,9 +336,6 @@ describe('SqsEmitter', () => {
 
 		afterEach(() => {
 			sinon.restore();
-		});
-
-		afterEach(() => {
 			ParameterStore.clearCache();
 		});
 
@@ -546,7 +545,7 @@ describe('SqsEmitter', () => {
 
 		});
 
-		it('Should reject if payload upload fails in both S3 buckets', async () => {
+		it('Should reject if payload upload fails in all S3 buckets', async () => {
 
 			sqsMock.on(SendMessageBatchCommand);
 

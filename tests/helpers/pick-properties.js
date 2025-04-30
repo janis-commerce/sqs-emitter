@@ -37,14 +37,19 @@ describe('pickProperties', () => {
 		assert.deepStrictEqual(result, expected);
 	});
 
-	it('should skip falsy values', () => {
+	it('Should skip undefined values', () => {
 		const input = {
-			a: 0, b: null, c: undefined, d: false, e: 1
+			a: 0,
+			b: null,
+			c: undefined,
+			d: false,
+			e: 1
 		};
+
 		const keys = ['a', 'b', 'c', 'd', 'e'];
-		const expected = { e: 1 };
+		const expected = { a: 0, b: null, d: false, e: 1 };
 		const result = pickProperties(input, keys);
+
 		assert.deepStrictEqual(result, expected);
 	});
-
 });
