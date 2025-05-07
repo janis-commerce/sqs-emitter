@@ -56,10 +56,10 @@ describe('SqsEmitter', () => {
 		}, true).length, 1);
 	};
 
-	const assertS3PutObjectCommand = (body, bucketName = buckets[0].bucketName) => {
+	const assertS3PutObjectCommand = (body, bucketName = buckets[0].bucketName, key = contentS3Path) => {
 		assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand, {
 			Bucket: bucketName,
-			Key: contentS3Path,
+			Key: key,
 			Body: JSON.stringify(body)
 		}, true).length, 1);
 	};
@@ -267,7 +267,7 @@ describe('SqsEmitter', () => {
 
 			const result = await this.sqsEmitter.publishEvent(sampleSqsUrlFifo, {
 				content: { foo: 'bar' },
-				attributes: { foo: 'bar', bar: true },
+				attributes: { foo: 'bar', bar: true, mobile: ['foo', 'bar'] },
 				subject: 'test',
 				messageGroupId: 'group1',
 				messageDeduplicationId: 'dedup1',
@@ -294,6 +294,10 @@ describe('SqsEmitter', () => {
 					bar: {
 						DataType: 'String',
 						StringValue: 'true'
+					},
+					mobile: {
+						DataType: 'String.Array',
+						StringValue: JSON.stringify(['foo', 'bar'])
 					}
 				},
 				Subject: 'test',
@@ -305,29 +309,86 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(result, singleEventResponse);
 		});
 
-		it('Should fail if session with clientCode is missing', async () => {
+		it('Should emit event with s3 content path if it is greater than 256KB and the session is missing', async () => {
 
-			s3Mock.on(PutObjectCommand);
-			sqsMock.on(SendMessageBatchCommand);
-			ssmMock.on(GetParameterCommand);
-			ramMock.on(ListResourcesCommand);
+			const partiallySentResponse = {
+				successCount: 1,
+				failedCount: 0,
+				success: [
+					{
+						messageId: '4ac0a219-1122-33b3-4445-5556666d734d'
+					}
+				],
+				failed: []
+			};
 
-			this.sqsEmitter.session = {};
+			ramMock.on(ListResourcesCommand).resolves({
+				resources: [{ arn: parameterNameStoreArn }]
+			});
 
-			const result = await assert.rejects(this.sqsEmitter.publishEvent(sampleSqsUrl, {
-				payloadFixedProperties: ['bar'],
-				content: {
-					bar: 'bar',
-					foo: 'x'.repeat(256 * 1024)
+			ssmMock.on(GetParameterCommand).resolves({
+				Parameter: {
+					Value: JSON.stringify(buckets)
 				}
-			}), { message: 'The session must have a clientCode' });
+			});
 
-			assert.deepStrictEqual(result, undefined);
-			assert.deepEqual(ramMock.commandCalls(ListResourcesCommand).length, 0);
-			assert.deepEqual(ssmMock.commandCalls(GetParameterCommand).length, 0);
-			assert.deepEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
-			assert.deepEqual(sqsMock.commandCalls(SendMessageCommand).length, 0);
-			assert.deepEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
+			s3Mock.on(PutObjectCommand).resolves({
+				ETag: '5d41402abc4b2a76b9719d911017c590'
+			});
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Successful: [
+					{ MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
+				]
+			});
+
+			const content = {
+				bar: 'bar',
+				foo: 'x'.repeat(256 * 1024)
+			};
+
+			const customS3ContentPath = `sqsContent/storage/service-name/MySQSName/2025/03/06/${randomId}.json`;
+
+			this.sqsEmitter.session = null;
+
+			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, [
+				{
+					payloadFixedProperties: ['bar'],
+					content
+				}
+			]);
+
+			assert.deepStrictEqual(result, partiallySentResponse);
+			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
+			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 1);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 1);
+
+			assertRamListResourceCommand();
+			assertSsmGetParameterCommand();
+			assertS3PutObjectCommand(content, buckets[0].bucketName, customS3ContentPath);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand, {
+				QueueUrl: sampleSqsUrl,
+				Entries: [
+					{
+						Id: '1',
+						MessageBody: JSON.stringify({
+							contentS3Location: {
+								path: customS3ContentPath,
+								bucketName: buckets[0].bucketName,
+								region: buckets[0].region
+							},
+							bar: 'bar'
+						}),
+						MessageAttributes: {
+							sqsName: {
+								DataType: 'String',
+								StringValue: 'MySQSName'
+							}
+						}
+					}]
+			}, true).length, 1);
+
 		});
 
 	});
@@ -344,26 +405,18 @@ describe('SqsEmitter', () => {
 		const eventResponse = {
 			successCount: 1,
 			failedCount: 0,
-			results: [
-				{
-					success: true,
-					messageId
-				}
-			]
+			success: [{ messageId }],
+			failed: []
 		};
 
 		const multiEventResponse = {
 			successCount: 1,
 			failedCount: 1,
-			results: [
+			success: [{ messageId }],
+			failed: [
 				{
-					success: true,
-					messageId: '4ac0a219-1122-33b3-4445-5556666d734d'
-				},
-				{
-					success: false,
-					errorCode: 'SQS001',
-					errorMessage: 'SQS Failed'
+					Code: 'SQS001',
+					Message: 'SQS Failed'
 				}
 			]
 		};
@@ -371,16 +424,16 @@ describe('SqsEmitter', () => {
 		const multiEventFifoResponse = {
 			successCount: 1,
 			failedCount: 1,
-			results: [
+			success: [
 				{
-					success: true,
 					messageId: '4ac0a219-1122-33b3-4445-5556666d734d',
 					sequenceNumber: '222222222222222222222222'
-				},
+				}
+			],
+			failed: [
 				{
-					success: false,
-					errorCode: 'SQS001',
-					errorMessage: 'SQS Failed'
+					Code: 'SQS001',
+					Message: 'SQS Failed'
 				}
 			]
 		};
@@ -545,7 +598,7 @@ describe('SqsEmitter', () => {
 
 		});
 
-		it('Should reject if payload upload fails in all S3 buckets', async () => {
+		it('Should not reject if payload upload fails in all S3 buckets', async () => {
 
 			sqsMock.on(SendMessageBatchCommand);
 
@@ -563,7 +616,19 @@ describe('SqsEmitter', () => {
 				}
 			});
 
-			const result = await assert.rejects(this.sqsEmitter.publishEvents(sampleSqsUrl, [
+			const expectedResult = {
+				successCount: 0,
+				failedCount: 1,
+				success: [],
+				failed: [
+					{
+						Code: 'S3_ERROR',
+						Message: 'Failed to upload to all provided s3 buckets'
+					}
+				]
+			};
+
+			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, [
 				{
 					payloadFixedProperties: ['bar'],
 					content: {
@@ -571,13 +636,74 @@ describe('SqsEmitter', () => {
 						foo: 'x'.repeat(256 * 1024)
 					}
 				}
-			]), { message: 'Failed to upload to all provided buckets' });
+			]);
 
-			assert.deepStrictEqual(result, undefined);
+			assert.deepStrictEqual(result, expectedResult);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
 			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 2);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 0);
+		});
+
+		it('Should handle S3 upload failure for a payload and return failure result without rejecting', async () => {
+
+			sqsMock.on(SendMessageBatchCommand)
+				.resolvesOnce({
+					Successful: [
+						{ MessageId: 'msg-1' }
+					]
+				});
+
+			s3Mock
+				.on(PutObjectCommand)
+				.rejectsOnce(new Error('Error fetching S3'))
+				.rejectsOnce(new Error('Error fetching S3'))
+				.resolvesOnce({ ETag: '5d41402abc4b2a76b9719d911017c591' });
+
+			ramMock.on(ListResourcesCommand).resolves({
+				resources: [{ arn: parameterNameStoreArn }]
+			});
+
+			ssmMock.on(GetParameterCommand).resolves({
+				Parameter: {
+					Value: JSON.stringify(buckets)
+				}
+			});
+
+			const expectedResult = {
+				successCount: 1,
+				failedCount: 1,
+				success: [{ messageId: 'msg-1' }],
+				failed: [
+					{
+						Code: 'S3_ERROR',
+						Message: 'Failed to upload to all provided s3 buckets'
+					}
+				]
+			};
+
+			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, [
+				{
+					payloadFixedProperties: ['bar'],
+					content: {
+						bar: 'bar',
+						foo: 'x'.repeat(256 * 1024)
+					}
+				},
+				{
+					payloadFixedProperties: ['foo'],
+					content: {
+						foo: 'foo',
+						bar: 'x'.repeat(256 * 1024)
+					}
+				}
+			]);
+
+			assert.deepStrictEqual(result, expectedResult);
+			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
+			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 4);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 1);
 		});
 
 		it('Should reject if the que url format is not valid', async () => {
@@ -647,12 +773,12 @@ describe('SqsEmitter', () => {
 			const partiallySentResponse = {
 				successCount: 1,
 				failedCount: 0,
-				results: [
+				success: [
 					{
-						success: true,
 						messageId: '4ac0a219-1122-33b3-4445-5556666d734d'
 					}
-				]
+				],
+				failed: []
 			};
 
 			ramMock.on(ListResourcesCommand).resolves({
@@ -730,12 +856,12 @@ describe('SqsEmitter', () => {
 			const partiallySentResponse = {
 				successCount: 1,
 				failedCount: 0,
-				results: [
+				success: [
 					{
-						success: true,
 						messageId: '4ac0a219-1122-33b3-4445-5556666d734d'
 					}
-				]
+				],
+				failed: []
 			};
 
 			ramMock.on(ListResourcesCommand).resolves({
