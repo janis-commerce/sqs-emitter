@@ -316,6 +316,7 @@ describe('SqsEmitter', () => {
 				failedCount: 0,
 				success: [
 					{
+						Id: '1',
 						messageId: '4ac0a219-1122-33b3-4445-5556666d734d'
 					}
 				],
@@ -338,7 +339,7 @@ describe('SqsEmitter', () => {
 
 			sqsMock.on(SendMessageBatchCommand).resolves({
 				Successful: [
-					{ MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
+					{ Id: '1', MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
 				]
 			});
 
@@ -405,16 +406,19 @@ describe('SqsEmitter', () => {
 		const eventResponse = {
 			successCount: 1,
 			failedCount: 0,
-			success: [{ messageId }],
+			success: [{ Id: '1', messageId }],
 			failed: []
 		};
 
 		const multiEventResponse = {
 			successCount: 1,
 			failedCount: 1,
-			success: [{ messageId }],
+			success: [
+				{ Id: '1', messageId }
+			],
 			failed: [
 				{
+					Id: '2',
 					Code: 'SQS001',
 					Message: 'SQS Failed'
 				}
@@ -426,12 +430,14 @@ describe('SqsEmitter', () => {
 			failedCount: 1,
 			success: [
 				{
+					Id: '1',
 					messageId: '4ac0a219-1122-33b3-4445-5556666d734d',
 					sequenceNumber: '222222222222222222222222'
 				}
 			],
 			failed: [
 				{
+					Id: '2',
 					Code: 'SQS001',
 					Message: 'SQS Failed'
 				}
@@ -442,7 +448,7 @@ describe('SqsEmitter', () => {
 
 			sqsMock.on(SendMessageBatchCommand).resolves({
 				Successful: [
-					{ MessageId: messageId }
+					{ Id: '1', MessageId: messageId }
 				]
 			});
 
@@ -482,12 +488,14 @@ describe('SqsEmitter', () => {
 			sqsMock.on(SendMessageBatchCommand).resolves({
 				Successful: [
 					{
+						Id: '1',
 						MessageId: '4ac0a219-1122-33b3-4445-5556666d734d',
 						SequenceNumber: '222222222222222222222222'
 					}
 				],
 				Failed: [
 					{
+						Id: '2',
 						Code: 'SQS001',
 						Message: 'SQS Failed'
 					}
@@ -791,6 +799,7 @@ describe('SqsEmitter', () => {
 				failedCount: 0,
 				success: [
 					{
+						Id: '1',
 						messageId: '4ac0a219-1122-33b3-4445-5556666d734d'
 					}
 				],
@@ -815,7 +824,7 @@ describe('SqsEmitter', () => {
 
 			sqsMock.on(SendMessageBatchCommand).resolves({
 				Successful: [
-					{ MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
+					{ Id: '1', MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
 				]
 			});
 
@@ -874,6 +883,7 @@ describe('SqsEmitter', () => {
 				failedCount: 0,
 				success: [
 					{
+						Id: '1',
 						messageId: '4ac0a219-1122-33b3-4445-5556666d734d'
 					}
 				],
@@ -896,7 +906,7 @@ describe('SqsEmitter', () => {
 
 			sqsMock.on(SendMessageBatchCommand).resolves({
 				Successful: [
-					{ MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
+					{ Id: '1', MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
 				]
 			});
 
@@ -954,11 +964,12 @@ describe('SqsEmitter', () => {
 			sqsMock.on(SendMessageBatchCommand)
 				.resolvesOnce({
 					Successful: [
-						{ MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
+						{ Id: '1', MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
 					]
 				})
 				.resolvesOnce({
 					Failed: [{
+						Id: '2',
 						Code: 'SQS001',
 						Message: 'SQS Failed'
 					}]
@@ -1034,12 +1045,13 @@ describe('SqsEmitter', () => {
 			sqsMock.on(SendMessageBatchCommand)
 				.resolvesOnce({
 					Successful: [
-						{ MessageId: 'msg-1' },
-						{ MessageId: 'msg-2' }
+						{ Id: '1', MessageId: 'msg-1' },
+						{ Id: '2', MessageId: 'msg-2' }
 					]
 				})
 				.resolvesOnce({
 					Failed: [{
+						Id: '3',
 						Code: 'SQS001',
 						Message: 'SQS Failed'
 					}]
