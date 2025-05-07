@@ -645,14 +645,12 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 0);
 		});
 
-		it('Should handle S3 upload failure for a payload and return failure result without rejecting', async () => {
+		it('Should handle S3 upload failure for multiple payloads and return failure result without rejecting', async () => {
 
-			sqsMock.on(SendMessageBatchCommand)
-				.resolvesOnce({
-					Successful: [
-						{ MessageId: 'msg-1' }
-					]
-				});
+			sqsMock
+				.on(SendMessageBatchCommand)
+				.resolvesOnce({ Failed: [{ Code: 'SQS001', Message: 'SQS Failed' }] })
+				.resolvesOnce({ Successful: [{ MessageId: 'msg-2' }] });
 
 			s3Mock
 				.on(PutObjectCommand)
@@ -671,18 +669,27 @@ describe('SqsEmitter', () => {
 			});
 
 			const expectedResult = {
-				successCount: 1,
-				failedCount: 1,
-				success: [{ messageId: 'msg-1' }],
+				successCount: 0,
+				failedCount: 2,
+				success: [],
 				failed: [
+					{ Code: 'SQS001', Message: 'SQS Failed' },
 					{
-						Code: 'S3_ERROR',
-						Message: 'Failed to upload to all provided s3 buckets'
+						Id: '3',
+						Message: 'Failed to upload to all provided s3 buckets',
+						Code: 'S3_ERROR'
 					}
 				]
 			};
 
 			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, [
+				{
+					payloadFixedProperties: ['foo'],
+					content: {
+						foo: 'bar',
+						bar: 'bar'
+					}
+				},
 				{
 					payloadFixedProperties: ['bar'],
 					content: {
