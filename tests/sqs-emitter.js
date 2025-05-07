@@ -622,6 +622,7 @@ describe('SqsEmitter', () => {
 				success: [],
 				failed: [
 					{
+						Id: '1',
 						Code: 'S3_ERROR',
 						Message: 'Failed to upload to all provided s3 buckets'
 					}
@@ -649,8 +650,16 @@ describe('SqsEmitter', () => {
 
 			sqsMock
 				.on(SendMessageBatchCommand)
-				.resolvesOnce({ Failed: [{ Code: 'SQS001', Message: 'SQS Failed' }] })
-				.resolvesOnce({ Successful: [{ MessageId: 'msg-2' }] });
+				.resolvesOnce({
+					Failed: [
+						{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }
+					]
+				})
+				.resolvesOnce({
+					Successful: [
+						{ Id: '2', MessageId: 'msg-2' }
+					]
+				});
 
 			s3Mock
 				.on(PutObjectCommand)
@@ -673,7 +682,7 @@ describe('SqsEmitter', () => {
 				failedCount: 2,
 				success: [],
 				failed: [
-					{ Code: 'SQS001', Message: 'SQS Failed' },
+					{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' },
 					{
 						Id: '3',
 						Message: 'Failed to upload to all provided s3 buckets',
