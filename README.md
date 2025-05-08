@@ -92,15 +92,11 @@ const result = await sqsEmitter.publishEvents('https://sqs.us-east-1.amazonaws.c
  * Sample Output
  *
  * {
- *   successCount: 2,
+ *   successCount: 1,
  *   failedCount: 1,
  *   success: [
  * 		{
  * 			Id: '1',
- * 			messageId: '8563a94f-59f3-4843-8b16-a012867fe97e'
- * 		},
- * 		{
- * 			Id: '3',
  * 			messageId: '8563a94f-59f3-4843-8b16-a012867fe97e'
  * 		}
  * 	],
