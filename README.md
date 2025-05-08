@@ -24,7 +24,7 @@ const SqsEmitter = require('@janiscommerce/sqs-emitter');
 
 > The event `attributes` can be either Strings or Arrays.  It's important to note that using other data types may cause issues or inconsistencies in the implemented filter policies. Ensure that the values provided for the attributes are always of the expected type to avoid errors in message processing.
 
-> The `payloadFixedProperties` event must be an array of strings containing the properties that must be mandatorily sent in the content. This is to improve error management, as these properties will allow us to identify which data failed and make a decision accordingly.
+> The `payloadFixedProperties` property must be an array of strings specifying the content properties that must be mandatorily sent. This improves error management by enabling us to identify which data failed and decide accordingly.
 
 #### **Important:** The session is required to obtain the `clientCode` and construct the `contentS3Path` for payloads that exceed the maximum SQS message size limit.
 
