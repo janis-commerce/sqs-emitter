@@ -43,6 +43,10 @@ describe('SqsEmitter', () => {
 		}
 	];
 
+	const stubRandomId = () => {
+		sinon.stub(this.sqsEmitter, 'randomId').get(() => randomId);
+	};
+
 	const assertRamListResourceCommand = () => {
 		assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand, {
 			resourceOwner: 'OTHER-ACCOUNTS'
@@ -73,7 +77,7 @@ describe('SqsEmitter', () => {
 
 		this.sqsEmitter = new SqsEmitter();
 		this.sqsEmitter.session = { clientCode: 'defaultClient' };
-		sinon.stub(this.sqsEmitter, 'randomId').get(() => randomId);
+		stubRandomId();
 
 		process.env.JANIS_SERVICE_NAME = 'service-name';
 	});
@@ -606,7 +610,7 @@ describe('SqsEmitter', () => {
 
 		});
 
-		it('Should not reject if payload upload fails in all S3 buckets', async () => {
+		it('Should not reject if cannot upload a payload to provided S3 buckets', async () => {
 
 			sqsMock.on(SendMessageBatchCommand);
 
@@ -655,6 +659,9 @@ describe('SqsEmitter', () => {
 		});
 
 		it('Should handle S3 upload failure for multiple payloads and return failure result without rejecting', async () => {
+
+			// Use to restore the stubbed randomId
+			sinon.restore();
 
 			sqsMock
 				.on(SendMessageBatchCommand)
@@ -730,7 +737,7 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 1);
 		});
 
-		it('Should reject if the que url format is not valid', async () => {
+		it('Should reject if the queue url format is not valid', async () => {
 
 			s3Mock.on(PutObjectCommand);
 			sqsMock.on(SendMessageBatchCommand);
