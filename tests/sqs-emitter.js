@@ -506,7 +506,7 @@ describe('SqsEmitter', () => {
 				]
 			});
 
-			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, [
+			const result = await this.sqsEmitter.publishEvents(sampleSqsUrlFifo, [
 				{
 					content: { foo: 'bar' }
 				},
