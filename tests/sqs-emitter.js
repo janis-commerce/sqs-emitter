@@ -518,7 +518,7 @@ describe('SqsEmitter', () => {
 			assert.deepStrictEqual(result, multiEventFifoResponse);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand, {
-				QueueUrl: sampleSqsUrl,
+				QueueUrl: sampleSqsUrlFifo,
 				Entries: [
 					{
 						Id: '1',
