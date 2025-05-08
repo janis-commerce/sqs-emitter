@@ -348,7 +348,7 @@ describe('SqsEmitter', () => {
 				foo: 'x'.repeat(256 * 1024)
 			};
 
-			const customS3ContentPath = `sqsContent/storage/service-name/MySQSName/2025/03/06/${randomId}.json`;
+			const customS3ContentPath = `sqsContent/core/service-name/MySQSName/2025/03/06/${randomId}.json`;
 
 			this.sqsEmitter.session = null;
 
