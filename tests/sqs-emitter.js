@@ -296,7 +296,7 @@ describe('SqsEmitter', () => {
 						StringValue: 'true'
 					},
 					mobile: {
-						DataType: 'String.Array',
+						DataType: 'String',
 						StringValue: JSON.stringify(['foo', 'bar'])
 					}
 				},
