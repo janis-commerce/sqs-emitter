@@ -43,10 +43,6 @@ describe('SqsEmitter', () => {
 		}
 	];
 
-	const stubRandomId = () => {
-		sinon.stub(this.sqsEmitter, 'randomId').get(() => randomId);
-	};
-
 	const assertRamListResourceCommand = () => {
 		assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand, {
 			resourceOwner: 'OTHER-ACCOUNTS'
@@ -77,7 +73,7 @@ describe('SqsEmitter', () => {
 
 		this.sqsEmitter = new SqsEmitter();
 		this.sqsEmitter.session = { clientCode: 'defaultClient' };
-		stubRandomId();
+		sinon.stub(this.sqsEmitter, 'randomId').get(() => randomId);
 
 		process.env.JANIS_SERVICE_NAME = 'service-name';
 	});
