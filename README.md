@@ -13,7 +13,6 @@ npm install @janiscommerce/sqs-emitter
 ## Usage
 ```js
 const SqsEmitter = require('@janiscommerce/sqs-emitter');
-
 ```
 
 ### SQS Emitter
