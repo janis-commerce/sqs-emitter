@@ -25,8 +25,6 @@ const SqsEmitter = require('@janiscommerce/sqs-emitter');
 
 > The `payloadFixedProperties` property must be an array of strings specifying the content properties that must be mandatorily sent. This improves error management by enabling us to identify which data failed and decide accordingly.
 
-#### **Important:** The session is required to obtain the `clientCode` and construct the `contentS3Path` for payloads that exceed the maximum SQS message size limit.
-
 #### Publish single event
 
 ```js
