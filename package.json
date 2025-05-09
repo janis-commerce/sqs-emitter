@@ -34,6 +34,7 @@
     "lib/",
     "types/"
   ],
+  "types": "types/index.d.ts",
   "directories": {
     "test": "tests"
   },
