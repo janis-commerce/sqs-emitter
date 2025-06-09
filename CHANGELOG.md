@@ -7,5 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### [1.1.0] - 2025-06-09
+### Added
+- **AWS X-Ray** support
+
 ### [1.0.0] - 2025-06-01
+### Added
 - SQS emitter for publishing events to AWS SQS queues with support for message attributes and batch processing
