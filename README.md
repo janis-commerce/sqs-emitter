@@ -4,13 +4,14 @@
 [![Coverage Status](https://coveralls.io/repos/github/janis-commerce/sqs-emitter/badge.svg?branch=master)](https://coveralls.io/github/janis-commerce/sqs-emitter?branch=master)
 [![npm version](https://badge.fury.io/js/%40janiscommerce%2Fsqs-emitter.svg)](https://www.npmjs.com/package/@janiscommerce/sqs-emitter)
 
-
 ## Installation
+
 ```sh
 npm install @janiscommerce/sqs-emitter
 ```
 
 ## Usage
+
 ```js
 const SqsEmitter = require('@janiscommerce/sqs-emitter');
 ```
@@ -47,8 +48,8 @@ const result = await sqsEmitter.publishEvent('https://sqs.us-east-1.amazonaws.co
  * Sample Output
  *
  * {
- * 	MessageId: '8563a94f-59f3-4843-8b16-a012867fe97e',
- * 	SequenceNumber: '' // For FIFO topics only
+ *  MessageId: '8563a94f-59f3-4843-8b16-a012867fe97e',
+ *  SequenceNumber: '' // For FIFO topics only
  * }
  */
 ```
@@ -92,18 +93,24 @@ const result = await sqsEmitter.publishEvents('https://sqs.us-east-1.amazonaws.c
  *   successCount: 1,
  *   failedCount: 1,
  *   success: [
- * 		{
- * 			Id: '1',
- * 			messageId: '8563a94f-59f3-4843-8b16-a012867fe97e'
- * 		}
- * 	],
- * 	failed: [
- * 		{
- * 			Id: '2',
- * 			errorCode: 'SQS001',
- * 			errorMessage: 'SQS Failed'
- * 		}
- * 	]
+ *   {
+ *    Id: '1',
+ *    messageId: '8563a94f-59f3-4843-8b16-a012867fe97e'
+ *   }
+ *  ],
+ *  failed: [
+ *   {
+ *    Id: '2',
+ *    errorCode: 'SQS001',
+ *    errorMessage: 'SQS Failed'
+ *   }
+ *  ]
  * }
  */
 ```
+
+#### Large Payload Support
+
+When using this package with serverless, it's recommended to use `sls-helper-plugin-janis` version 10.2.0 or higher to handle messages that exceed the SNS payload limit. This version is required to ensure proper permissions are set up.
+
+Additionally, it's recommended to update `@janiscommerce/sqs-consumer` to version 1.1.0 or higher in any service that listens to events emitted by this package. This way, storage and retrieval of large payloads through S3 will be automatically handled when needed.
