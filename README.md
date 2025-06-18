@@ -10,11 +10,11 @@
 npm install @janiscommerce/sqs-emitter
 ```
 
-## 🚨🚀 **Critical Update: Large Payload Support (Introduced in Major Version 2)** 🚀🚨
+## 🚨 **Requirement: Large Payload Support** 🚨
 
-When using this package with serverless, it's **mandatory** to use `sls-helper-plugin-janis` version 10.2.0 or higher to handle messages that exceed the SNS payload limit. This version is **required** to ensure proper permissions are set up.
+When using this package with serverless, it's **mandatory** to use [`sls-helper-plugin-janis`](https://www.npmjs.com/package/sls-helper-plugin-janis) version 10.2.0 or higher to handle messages that exceed the SNS payload limit. This version is **required** to ensure proper permissions are set up.
 
-Additionally, it's **mandatory** to update `@janiscommerce/sqs-consumer` to version 1.1.0 or higher in any service that listens to events emitted by this package. This way, storage and retrieval of large payloads through S3 will be automatically handled when needed.
+Additionally, it's **mandatory** to update [`@janiscommerce/sqs-consumer`](https://www.npmjs.com/package/@janiscommerce/sqs-consumer) to version 1.0.0 or higher in any service that listens to events emitted by this package. This way, storage and retrieval of large payloads through S3 will be automatically handled when needed.
 
 ## Usage
 
