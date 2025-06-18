@@ -109,7 +109,7 @@ const result = await sqsEmitter.publishEvents('https://sqs.us-east-1.amazonaws.c
  */
 ```
 
-#### 🚨🚀 **Critical Update: Large Payload Support** 🚀🚨
+## 🚨🚀 **Critical Update: Large Payload Support (Introduced in v2.1.0)** 🚀🚨
 
 When using this package with serverless, it's **mandatory** to use `sls-helper-plugin-janis` version 10.2.0 or higher to handle messages that exceed the SNS payload limit. This version is **required** to ensure proper permissions are set up.
 
