@@ -99,6 +99,27 @@ describe('SqsEmitter', () => {
 			sequenceNumber: '222222222222222222222222'
 		};
 
+		const publishEventResponse = {
+			failedCount: 0,
+			successCount: 1,
+			failed: [],
+			success: [
+				{ messageId: singleEventFifoResponse.messageId }
+			]
+		};
+
+		const publishEventFifoResponse = {
+			failedCount: 0,
+			successCount: 1,
+			failed: [],
+			success: [
+				{
+					messageId: singleEventFifoResponse.messageId,
+					sequenceNumber: singleEventFifoResponse.sequenceNumber
+				}
+			]
+		};
+
 		it('Should publish a single event with content only as minimal requirement (Standard SQS)', async () => {
 
 			sqsMock.on(SendMessageCommand).resolves({
@@ -109,7 +130,7 @@ describe('SqsEmitter', () => {
 				content: { foo: 'bar' }
 			});
 
-			assert.deepStrictEqual(result, singleEventResponse);
+			assert.deepStrictEqual(result, publishEventResponse);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrl,
@@ -156,7 +177,7 @@ describe('SqsEmitter', () => {
 				payloadFixedProperties: ['bar']
 			});
 
-			assert.deepStrictEqual(result, singleEventFifoResponse);
+			assert.deepStrictEqual(result, publishEventFifoResponse);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
@@ -203,7 +224,7 @@ describe('SqsEmitter', () => {
 				content: { foo: 'bar' }
 			});
 
-			assert.deepStrictEqual(result, singleEventFifoResponse);
+			assert.deepStrictEqual(result, publishEventFifoResponse);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrlFifo,
@@ -256,13 +277,14 @@ describe('SqsEmitter', () => {
 				Subject: 'test'
 			}, true).length, 1);
 
-			assert.deepStrictEqual(result, singleEventResponse);
+			assert.deepStrictEqual(result, publishEventResponse);
 		});
 
 		it('Should publish a single event with all available properties (FIFO SQS)', async () => {
 
 			sqsMock.on(SendMessageCommand).resolves({
-				MessageId: singleEventResponse.messageId
+				MessageId: singleEventFifoResponse.messageId,
+				SequenceNumber: singleEventFifoResponse.sequenceNumber
 			});
 
 			const result = await this.sqsEmitter.publishEvent(sampleSqsUrlFifo, {
@@ -274,6 +296,7 @@ describe('SqsEmitter', () => {
 				messageStructure: 'json'
 			});
 
+			assert.deepStrictEqual(result, publishEventFifoResponse);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
 			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
 				QueueUrl: sampleSqsUrlFifo,
@@ -306,22 +329,70 @@ describe('SqsEmitter', () => {
 				MessageStructure: 'json'
 			}, true).length, 1);
 
-			assert.deepStrictEqual(result, singleEventResponse);
 		});
 
-		it('Should emit event with s3 content path if it is greater than 256KB and the session is missing', async () => {
+		it('Should handle send sqs message failure for single payload (FIFO SQS)', async () => {
 
-			const partiallySentResponse = {
-				successCount: 1,
-				failedCount: 0,
-				success: [
+			const publishEventFifoFailResponse = {
+				successCount: 0,
+				failedCount: 1,
+				success: [],
+				failed: [
 					{
-						Id: '1',
-						messageId: '4ac0a219-1122-33b3-4445-5556666d734d'
+						Message: 'InternalServerError',
+						Code: 'SEND_SQS_MESSAGE_ERROR'
 					}
-				],
-				failed: []
+				]
 			};
+
+			sqsMock.on(SendMessageCommand)
+				.rejectsOnce(new Error('InternalServerError'));
+
+			const result = await this.sqsEmitter.publishEvent(sampleSqsUrlFifo, {
+				content: { foo: 'bar' },
+				attributes: { foo: 'bar', bar: true, mobile: ['foo', 'bar'] },
+				subject: 'test',
+				messageGroupId: 'group1',
+				messageDeduplicationId: 'dedup1',
+				messageStructure: 'json'
+			});
+
+			assert.deepStrictEqual(result, publishEventFifoFailResponse);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand, {
+				QueueUrl: sampleSqsUrlFifo,
+				MessageBody: JSON.stringify({ foo: 'bar' }),
+				MessageAttributes: {
+					'janis-client': {
+						DataType: 'String',
+						StringValue: 'defaultClient'
+					},
+					sqsName: {
+						DataType: 'String',
+						StringValue: sqsName
+					},
+					foo: {
+						DataType: 'String',
+						StringValue: 'bar'
+					},
+					bar: {
+						DataType: 'String',
+						StringValue: 'true'
+					},
+					mobile: {
+						DataType: 'String',
+						StringValue: JSON.stringify(['foo', 'bar'])
+					}
+				},
+				Subject: 'test',
+				MessageGroupId: 'group1',
+				MessageDeduplicationId: 'dedup1',
+				MessageStructure: 'json'
+			}, true).length, 1);
+
+		});
+
+		it('Should handle S3 upload failure for single payload and return failure result without rejecting (FIFO SQS)', async () => {
 
 			ramMock.on(ListResourcesCommand).resolves({
 				resources: [{ arn: parameterNameStoreArn }]
@@ -333,63 +404,43 @@ describe('SqsEmitter', () => {
 				}
 			});
 
-			s3Mock.on(PutObjectCommand).resolves({
-				ETag: '5d41402abc4b2a76b9719d911017c590'
+			s3Mock.on(PutObjectCommand)
+				.rejectsOnce(new Error('Error fetching S3'));
+
+			sqsMock.on(SendMessageCommand).resolves({
+				MessageId: singleEventFifoResponse.messageId,
+				SequenceNumber: singleEventFifoResponse.sequenceNumber
 			});
 
-			sqsMock.on(SendMessageBatchCommand).resolves({
-				Successful: [
-					{ Id: '1', MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
-				]
+			const result = await this.sqsEmitter.publishEvent(sampleSqsUrlFifo, {
+				content: {
+					bar: 'bar',
+					foo: 'x'.repeat(256 * 1024)
+				},
+				payloadFixedProperties: ['bar']
 			});
 
-			const content = {
-				bar: 'bar',
-				foo: 'x'.repeat(256 * 1024)
-			};
+			assert.deepStrictEqual(result, {
+				failed: [{
+					Code: 'S3_ERROR',
+					Message: 'Failed to upload to all provided s3 buckets'
+				}],
+				failedCount: 1,
+				success: [],
+				successCount: 0
+			});
 
-			const customS3ContentPath = `sqsContent/core/service-name/MySQSName/2025/03/06/${randomId}.json`;
-
-			this.sqsEmitter.session = null;
-
-			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, [
-				{
-					payloadFixedProperties: ['bar'],
-					content
-				}
-			]);
-
-			assert.deepStrictEqual(result, partiallySentResponse);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 0);
 			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
 			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
-			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 1);
-			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 1);
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 2);
 
 			assertRamListResourceCommand();
 			assertSsmGetParameterCommand();
-			assertS3PutObjectCommand(content, buckets[0].bucketName, customS3ContentPath);
-			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand, {
-				QueueUrl: sampleSqsUrl,
-				Entries: [
-					{
-						Id: '1',
-						MessageBody: JSON.stringify({
-							contentS3Location: {
-								path: customS3ContentPath,
-								bucketName: buckets[0].bucketName,
-								region: buckets[0].region
-							},
-							bar: 'bar'
-						}),
-						MessageAttributes: {
-							sqsName: {
-								DataType: 'String',
-								StringValue: 'MySQSName'
-							}
-						}
-					}]
-			}, true).length, 1);
-
+			assertS3PutObjectCommand({
+				bar: 'bar',
+				foo: 'x'.repeat(256 * 1024)
+			});
 		});
 
 	});
@@ -546,6 +597,89 @@ describe('SqsEmitter', () => {
 					}
 				]
 			}, true).length, 1);
+		});
+
+		it('Should emit event with s3 content path if it is greater than 256KB and the session is missing', async () => {
+
+			const partiallySentResponse = {
+				successCount: 1,
+				failedCount: 0,
+				success: [
+					{
+						Id: '1',
+						messageId: '4ac0a219-1122-33b3-4445-5556666d734d'
+					}
+				],
+				failed: []
+			};
+
+			ramMock.on(ListResourcesCommand).resolves({
+				resources: [{ arn: parameterNameStoreArn }]
+			});
+
+			ssmMock.on(GetParameterCommand).resolves({
+				Parameter: {
+					Value: JSON.stringify(buckets)
+				}
+			});
+
+			s3Mock.on(PutObjectCommand).resolves({
+				ETag: '5d41402abc4b2a76b9719d911017c590'
+			});
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Successful: [
+					{ Id: '1', MessageId: '4ac0a219-1122-33b3-4445-5556666d734d' }
+				]
+			});
+
+			const content = {
+				bar: 'bar',
+				foo: 'x'.repeat(256 * 1024)
+			};
+
+			const customS3ContentPath = `sqsContent/core/service-name/MySQSName/2025/03/06/${randomId}.json`;
+
+			this.sqsEmitter.session = null;
+
+			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, [
+				{
+					payloadFixedProperties: ['bar'],
+					content
+				}
+			]);
+
+			assert.deepStrictEqual(result, partiallySentResponse);
+			assert.deepStrictEqual(ramMock.commandCalls(ListResourcesCommand).length, 1);
+			assert.deepStrictEqual(ssmMock.commandCalls(GetParameterCommand).length, 1);
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 1);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 1);
+
+			assertRamListResourceCommand();
+			assertSsmGetParameterCommand();
+			assertS3PutObjectCommand(content, buckets[0].bucketName, customS3ContentPath);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand, {
+				QueueUrl: sampleSqsUrl,
+				Entries: [
+					{
+						Id: '1',
+						MessageBody: JSON.stringify({
+							contentS3Location: {
+								path: customS3ContentPath,
+								bucketName: buckets[0].bucketName,
+								region: buckets[0].region
+							},
+							bar: 'bar'
+						}),
+						MessageAttributes: {
+							sqsName: {
+								DataType: 'String',
+								StringValue: 'MySQSName'
+							}
+						}
+					}]
+			}, true).length, 1);
+
 		});
 
 		it('Should reject if fails retrieve parameter name from ram resources', async () => {
