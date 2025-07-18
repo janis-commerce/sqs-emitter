@@ -53,7 +53,8 @@ const result = await sqsEmitter.publishEvent('https://sqs.us-east-1.amazonaws.co
  *   success: [
  * 		{
  * 			Id: '1',
- * 			messageId: '8563a94f-59f3-4843-8b16-a012867fe97e'
+ * 			messageId: '8563a94f-59f3-4843-8b16-a012867fe97e',
+ *      SequenceNumber: '' // For FIFO topics only
  * 		}
  * 	]
  * }
