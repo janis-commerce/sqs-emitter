@@ -49,14 +49,14 @@ const result = await sqsEmitter.publishEvent('https://sqs.us-east-1.amazonaws.co
  * {
  *   successCount: 1,
  *   failedCount: 0,
- *   failed: []
+ *   failed: [],
  *   success: [
- * 		{
- * 			Id: '1',
- * 			messageId: '8563a94f-59f3-4843-8b16-a012867fe97e',
- *      SequenceNumber: '' // For FIFO topics only
- * 		}
- * 	]
+ *     {
+ *       Id: '1',
+ *       messageId: '8563a94f-59f3-4843-8b16-a012867fe97e',
+ *       SequenceNumber: '' // For FIFO topics only
+ *     }
+ *   ]
  * }
  */
 ```
