@@ -47,5 +47,8 @@
     "lllog": "^1.1.2",
     "micro-memoize": "^4.1.3",
     "nanoid": "3.3.4"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
