@@ -19,7 +19,7 @@ npm install @janiscommerce/sqs-emitter
 ## Usage
 
 ```js
-const SqsEmitter = require('@janiscommerce/sqs-emitter');
+const { SqsEmitter } = require('@janiscommerce/sqs-emitter');
 ```
 
 ### SQS Emitter
@@ -54,11 +54,13 @@ const result = await sqsEmitter.publishEvent('https://sqs.us-east-1.amazonaws.co
  * Sample Output
  *
  * {
- *  MessageId: '8563a94f-59f3-4843-8b16-a012867fe97e',
- *  SequenceNumber: '' // For FIFO topics only
+ *  messageId: '8563a94f-59f3-4843-8b16-a012867fe97e',
+ *  sequenceNumber: '18889007921482248832' // For FIFO queues only
  * }
  */
 ```
+
+> If the event exceeds the 256KB limit and the payload can't be uploaded to any S3 bucket, `publishEvent` rejects with a `SqsEmitterError` with code `S3_ERROR` and nothing is sent to SQS.
 
 #### Publish multiple events
 
@@ -107,10 +109,48 @@ const result = await sqsEmitter.publishEvents('https://sqs.us-east-1.amazonaws.c
  *  failed: [
  *   {
  *    Id: '2',
- *    errorCode: 'SQS001',
- *    errorMessage: 'SQS Failed'
+ *    SenderFault: true,
+ *    Code: 'SQS001',
+ *    Message: 'SQS Failed'
  *   }
  *  ]
  * }
  */
 ```
+
+> `failed` entries rejected by SQS keep the SQS format (`Id`, `SenderFault`, `Code`, `Message`). Events exceeding 256KB whose payload can't be uploaded to any S3 bucket are not sent and are reported as `{ Id, Code: 'S3_ERROR', Message: 'Failed to upload to all provided s3 buckets' }`.
+
+## Logging 🔎
+
+Events that fail to be published are no longer silent: `publishEvents()` logs them **by default**, so they show up in your function logs even if your code doesn't check the `failed` entries of the response.
+
+- 📝 A single `logger.error` per call, only when at least one event failed.
+- 📊 It includes the queue name, the `clientCode` (when the emitter has a session), the failed count and the total count.
+- 🔬 `failedSample` holds up to the **first 10** failed entries, with only `Id`, `Code`, `Message` and `SenderFault`.
+- 🔒 The message content (`MessageBody`, `content`, attributes) is **never** logged, as it may contain personal data.
+
+```js
+// Sample log metadata
+{
+  sqsName: 'MySQSName',
+  clientCode: 'my-client',
+  failedCount: 25,
+  totalCount: 200,
+  failedSample: [
+    { Id: '7', Code: 'InternalError', Message: 'Internal error', SenderFault: false }
+    // ...up to 10 entries
+  ]
+}
+```
+
+### Disabling the log
+
+If your service already handles the `failed` entries and you don't want duplicated logs, set this env var in the function:
+
+```sh
+SQS_EMITTER_DISABLE_FAILED_LOG=true
+```
+
+> Only the exact value `'true'` disables it: any other value (or no value) keeps the log enabled.
+
+`publishEvent()` doesn't log: it rejects, so the error is always visible to the caller.

@@ -2,6 +2,10 @@
 
 require('lllog')('none');
 
+// lllog's factory returns a new Logger instance per call sharing the same prototype, so stubbing
+// the prototype intercepts the logger.error() call made inside the module under test.
+const LllogLogger = require('lllog')().constructor;
+
 const sinon = require('sinon');
 const assert = require('assert');
 
@@ -11,8 +15,9 @@ const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 const { RAMClient, ListResourcesCommand } = require('@aws-sdk/client-ram');
 const { SQSClient, SendMessageBatchCommand, SendMessageCommand } = require('@aws-sdk/client-sqs');
 
-const { SqsEmitter } = require('../lib');
+const { SqsEmitter, SqsEmitterError } = require('../lib');
 const ParameterStore = require('../lib/helpers/parameter-store');
+const S3Uploader = require('../lib/helpers/s3-uploader');
 
 describe('SqsEmitter', () => {
 
@@ -86,6 +91,55 @@ describe('SqsEmitter', () => {
 		clock.restore();
 		sinon.restore();
 		ParameterStore.clearCache();
+	});
+
+	describe('AWS clients reuse', () => {
+
+		it('Should share the SQS client between instances', () => {
+			assert.strictEqual(new SqsEmitter().sqs, new SqsEmitter().sqs);
+		});
+
+		it('Should reuse the S3 client for uploads to the same region', async () => {
+
+			s3Mock.on(PutObjectCommand).resolves({ ETag: 'etag' });
+
+			await S3Uploader.uploadToBucket(buckets[0], contentS3Path, 'body');
+			await S3Uploader.uploadToBucket(buckets[0], contentS3Path, 'body');
+
+			const [firstCall, secondCall] = s3Mock.calls();
+
+			assert.strictEqual(firstCall.thisValue, secondCall.thisValue);
+		});
+
+		it('Should use a different S3 client for each region', async () => {
+
+			s3Mock.on(PutObjectCommand).resolves({ ETag: 'etag' });
+
+			await S3Uploader.uploadToBucket(buckets[0], contentS3Path, 'body');
+			await S3Uploader.uploadToBucket(buckets[1], contentS3Path, 'body');
+
+			const [firstCall, secondCall] = s3Mock.calls();
+
+			assert.notStrictEqual(firstCall.thisValue, secondCall.thisValue);
+			assert.strictEqual(await firstCall.thisValue.config.region(), buckets[0].region);
+			assert.strictEqual(await secondCall.thisValue.config.region(), buckets[1].region);
+		});
+
+		it('Should reuse the SSM and RAM clients between parameter lookups', async () => {
+
+			ramMock.on(ListResourcesCommand).resolves({ resources: [{ arn: parameterNameStoreArn }] });
+			ssmMock.on(GetParameterCommand).resolves({ Parameter: { Value: JSON.stringify(buckets) } });
+
+			await ParameterStore.getParameterValue();
+			ParameterStore.clearCache();
+			await ParameterStore.getParameterValue();
+
+			const [firstSsmCall, secondSsmCall] = ssmMock.calls();
+			const [firstRamCall, secondRamCall] = ramMock.calls();
+
+			assert.strictEqual(firstSsmCall.thisValue, secondSsmCall.thisValue);
+			assert.strictEqual(firstRamCall.thisValue, secondRamCall.thisValue);
+		});
 	});
 
 	describe('publishEvent', () => {
@@ -392,6 +446,75 @@ describe('SqsEmitter', () => {
 
 		});
 
+		it('Should reject with S3_ERROR and not call SQS if a payload greater than 256KB cannot be uploaded to any S3 bucket', async () => {
+
+			ramMock.on(ListResourcesCommand).resolves({
+				resources: [{ arn: parameterNameStoreArn }]
+			});
+
+			ssmMock.on(GetParameterCommand).resolves({
+				Parameter: {
+					Value: JSON.stringify(buckets)
+				}
+			});
+
+			s3Mock.on(PutObjectCommand).rejects(new Error('Error fetching S3'));
+
+			sqsMock.on(SendMessageCommand);
+
+			await assert.rejects(() => this.sqsEmitter.publishEvent(sampleSqsUrl, {
+				payloadFixedProperties: ['bar'],
+				content: {
+					bar: 'bar',
+					foo: 'x'.repeat(256 * 1024)
+				}
+			}), {
+				name: 'SqsEmitterError',
+				message: 'Failed to upload to all provided s3 buckets',
+				code: SqsEmitterError.codes.S3_ERROR
+			});
+
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 2);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 0);
+		});
+
+		it('Should use s3 content path if the event is lower than 256KB in characters but greater in bytes', async () => {
+
+			ramMock.on(ListResourcesCommand).resolves({
+				resources: [{ arn: parameterNameStoreArn }]
+			});
+
+			ssmMock.on(GetParameterCommand).resolves({
+				Parameter: {
+					Value: JSON.stringify(buckets)
+				}
+			});
+
+			s3Mock.on(PutObjectCommand).resolves({
+				ETag: '5d41402abc4b2a76b9719d911017c590'
+			});
+
+			sqsMock.on(SendMessageCommand).resolves({
+				MessageId: '4ac0a219-1122-33b3-4445-5556666d734d'
+			});
+
+			// 150K characters (< 256KB) but 300KB in UTF-8
+			const content = { foo: 'ñ'.repeat(150 * 1024) };
+
+			const result = await this.sqsEmitter.publishEvent(sampleSqsUrl, { content });
+
+			assert.deepStrictEqual(result, { messageId: '4ac0a219-1122-33b3-4445-5556666d734d' });
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 1);
+			assertS3PutObjectCommand(content);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand)[0].args[0].input.MessageBody, JSON.stringify({
+				contentS3Location: {
+					path: contentS3Path,
+					bucketName: buckets[0].bucketName,
+					region: buckets[0].region
+				}
+			}));
+		});
 	});
 
 	describe('publishEvents', () => {
@@ -1043,6 +1166,20 @@ describe('SqsEmitter', () => {
 			}, true).length, 1);
 		});
 
+		it('Should split events in different batches if their total size is greater than 256KB in bytes but lower in characters', async () => {
+
+			sqsMock.on(SendMessageBatchCommand).resolves({});
+
+			// 70K characters each (140K in total) but 140KB each in UTF-8
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, [
+				{ content: { foo: 'ñ'.repeat(70 * 1024) } },
+				{ content: { foo: 'ñ'.repeat(70 * 1024) } }
+			]);
+
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 2);
+		});
+
 		it('Should split events in batches not greater than 10 entries', async () => {
 
 			sqsMock.on(SendMessageBatchCommand)
@@ -1110,5 +1247,130 @@ describe('SqsEmitter', () => {
 
 		});
 
+	});
+
+	describe('Failed events log', () => {
+
+		let loggerErrorStub;
+		const originalDisableFailedLog = process.env.SQS_EMITTER_DISABLE_FAILED_LOG;
+
+		beforeEach(() => {
+			loggerErrorStub = sinon.stub(LllogLogger.prototype, 'error');
+			delete process.env.SQS_EMITTER_DISABLE_FAILED_LOG;
+		});
+
+		afterEach(() => {
+			if(originalDisableFailedLog === undefined)
+				delete process.env.SQS_EMITTER_DISABLE_FAILED_LOG;
+			else
+				process.env.SQS_EMITTER_DISABLE_FAILED_LOG = originalDisableFailedLog;
+		});
+
+		const buildEvents = length => Array.from({ length }, (_, index) => ({
+			content: { secret: `personal-data-${index + 1}` },
+			attributes: { secretAttribute: 'personal-attribute' }
+		}));
+
+		it('Should log once the failed entries without the message content', async () => {
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Successful: [{ Id: '1', MessageId: 'message-1' }],
+				Failed: [{
+					Id: '2',
+					SenderFault: true,
+					Code: 'SQS001',
+					Message: 'SQS Failed',
+					MessageBody: 'should-not-be-logged'
+				}]
+			});
+
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(2));
+
+			sinon.assert.calledOnce(loggerErrorStub);
+			sinon.assert.calledWithExactly(loggerErrorStub, 'Failed to publish SQS events', {
+				sqsName: 'MySQSName',
+				clientCode: 'defaultClient',
+				failedCount: 1,
+				totalCount: 2,
+				failedSample: [{ Id: '2', Code: 'SQS001', Message: 'SQS Failed', SenderFault: true }]
+			});
+
+			assert.ok(!JSON.stringify(loggerErrorStub.args).match(/personal-|should-not-be-logged/));
+		});
+
+		it('Should log without clientCode and SenderFault when they do not exist', async () => {
+
+			this.sqsEmitter.session = undefined;
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Failed: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
+			});
+
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(1));
+
+			sinon.assert.calledOnceWithExactly(loggerErrorStub, 'Failed to publish SQS events', {
+				sqsName: 'MySQSName',
+				failedCount: 1,
+				totalCount: 1,
+				failedSample: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
+			});
+		});
+
+		it('Should log only the first 10 failed entries with the total count', async () => {
+
+			sqsMock.on(SendMessageBatchCommand).callsFake(({ Entries }) => ({
+				Failed: Entries.map(({ Id }) => ({ Id, Code: 'SQS001', Message: 'SQS Failed' }))
+			}));
+
+			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(25));
+
+			assert.deepStrictEqual(result.failedCount, 25);
+
+			sinon.assert.calledOnce(loggerErrorStub);
+
+			const [, metadata] = loggerErrorStub.firstCall.args;
+
+			assert.deepStrictEqual(metadata.failedCount, 25);
+			assert.deepStrictEqual(metadata.totalCount, 25);
+			assert.deepStrictEqual(metadata.failedSample.map(({ Id }) => Id), Array.from({ length: 10 }, (_, index) => `${index + 1}`));
+		});
+
+		it('Should not log when there are no failed entries', async () => {
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Successful: [{ Id: '1', MessageId: 'message-1' }]
+			});
+
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(1));
+
+			sinon.assert.notCalled(loggerErrorStub);
+		});
+
+		it('Should not log when SQS_EMITTER_DISABLE_FAILED_LOG is true', async () => {
+
+			process.env.SQS_EMITTER_DISABLE_FAILED_LOG = 'true';
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Failed: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
+			});
+
+			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(1));
+
+			assert.deepStrictEqual(result.failedCount, 1);
+			sinon.assert.notCalled(loggerErrorStub);
+		});
+
+		it('Should log when SQS_EMITTER_DISABLE_FAILED_LOG has a value other than true', async () => {
+
+			process.env.SQS_EMITTER_DISABLE_FAILED_LOG = 'false';
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Failed: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
+			});
+
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(1));
+
+			sinon.assert.calledOnce(loggerErrorStub);
+		});
 	});
 });
