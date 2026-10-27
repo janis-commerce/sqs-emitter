@@ -119,3 +119,5 @@ const result = await sqsEmitter.publishEvents('https://sqs.us-east-1.amazonaws.c
 ```
 
 > `failed` entries rejected by SQS keep the SQS format (`Id`, `SenderFault`, `Code`, `Message`). Events exceeding 256KB whose payload can't be uploaded to any S3 bucket are not sent and are reported as `{ Id, Code: 'S3_ERROR', Message: 'Failed to upload to all provided s3 buckets' }`.
+
+> Failed entries are logged by default with a single `logger.error` per call: queue name, `clientCode` (if the session has one), failed count over total events and the first 10 failed entries with only `Id`, `Code`, `Message` and `SenderFault`. The message content (`MessageBody`, `content`, attributes) is never logged. To disable it, set the env var `SQS_EMITTER_DISABLE_FAILED_LOG=true`.

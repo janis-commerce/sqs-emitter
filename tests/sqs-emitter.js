@@ -2,6 +2,10 @@
 
 require('lllog')('none');
 
+// lllog's factory returns a new Logger instance per call sharing the same prototype, so stubbing
+// the prototype intercepts the logger.error() call made inside the module under test.
+const LllogLogger = require('lllog')().constructor;
+
 const sinon = require('sinon');
 const assert = require('assert');
 
@@ -1229,5 +1233,130 @@ describe('SqsEmitter', () => {
 
 		});
 
+	});
+
+	describe('Failed events log', () => {
+
+		let loggerErrorStub;
+		const originalDisableFailedLog = process.env.SQS_EMITTER_DISABLE_FAILED_LOG;
+
+		beforeEach(() => {
+			loggerErrorStub = sinon.stub(LllogLogger.prototype, 'error');
+			delete process.env.SQS_EMITTER_DISABLE_FAILED_LOG;
+		});
+
+		afterEach(() => {
+			if(originalDisableFailedLog === undefined)
+				delete process.env.SQS_EMITTER_DISABLE_FAILED_LOG;
+			else
+				process.env.SQS_EMITTER_DISABLE_FAILED_LOG = originalDisableFailedLog;
+		});
+
+		const buildEvents = length => Array.from({ length }, (_, index) => ({
+			content: { secret: `personal-data-${index + 1}` },
+			attributes: { secretAttribute: 'personal-attribute' }
+		}));
+
+		it('Should log once the failed entries without the message content', async () => {
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Successful: [{ Id: '1', MessageId: 'message-1' }],
+				Failed: [{
+					Id: '2',
+					SenderFault: true,
+					Code: 'SQS001',
+					Message: 'SQS Failed',
+					MessageBody: 'should-not-be-logged'
+				}]
+			});
+
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(2));
+
+			sinon.assert.calledOnce(loggerErrorStub);
+			sinon.assert.calledWithExactly(loggerErrorStub, 'Failed to publish SQS events', {
+				sqsName: 'MySQSName',
+				clientCode: 'defaultClient',
+				failedCount: 1,
+				totalCount: 2,
+				failed: [{ Id: '2', Code: 'SQS001', Message: 'SQS Failed', SenderFault: true }]
+			});
+
+			assert.ok(!JSON.stringify(loggerErrorStub.args).match(/personal-|should-not-be-logged/));
+		});
+
+		it('Should log without clientCode and SenderFault when they do not exist', async () => {
+
+			this.sqsEmitter.session = undefined;
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Failed: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
+			});
+
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(1));
+
+			sinon.assert.calledOnceWithExactly(loggerErrorStub, 'Failed to publish SQS events', {
+				sqsName: 'MySQSName',
+				failedCount: 1,
+				totalCount: 1,
+				failed: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
+			});
+		});
+
+		it('Should log only the first 10 failed entries with the total count', async () => {
+
+			sqsMock.on(SendMessageBatchCommand).callsFake(({ Entries }) => ({
+				Failed: Entries.map(({ Id }) => ({ Id, Code: 'SQS001', Message: 'SQS Failed' }))
+			}));
+
+			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(25));
+
+			assert.deepStrictEqual(result.failedCount, 25);
+
+			sinon.assert.calledOnce(loggerErrorStub);
+
+			const [, metadata] = loggerErrorStub.firstCall.args;
+
+			assert.deepStrictEqual(metadata.failedCount, 25);
+			assert.deepStrictEqual(metadata.totalCount, 25);
+			assert.deepStrictEqual(metadata.failed.map(({ Id }) => Id), Array.from({ length: 10 }, (_, index) => `${index + 1}`));
+		});
+
+		it('Should not log when there are no failed entries', async () => {
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Successful: [{ Id: '1', MessageId: 'message-1' }]
+			});
+
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(1));
+
+			sinon.assert.notCalled(loggerErrorStub);
+		});
+
+		it('Should not log when SQS_EMITTER_DISABLE_FAILED_LOG is true', async () => {
+
+			process.env.SQS_EMITTER_DISABLE_FAILED_LOG = 'true';
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Failed: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
+			});
+
+			const result = await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(1));
+
+			assert.deepStrictEqual(result.failedCount, 1);
+			sinon.assert.notCalled(loggerErrorStub);
+		});
+
+		it('Should log when SQS_EMITTER_DISABLE_FAILED_LOG has a value other than true', async () => {
+
+			process.env.SQS_EMITTER_DISABLE_FAILED_LOG = 'false';
+
+			sqsMock.on(SendMessageBatchCommand).resolves({
+				Failed: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
+			});
+
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, buildEvents(1));
+
+			sinon.assert.calledOnce(loggerErrorStub);
+		});
 	});
 });
