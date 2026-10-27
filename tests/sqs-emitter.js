@@ -11,7 +11,7 @@ const { SSMClient, GetParameterCommand } = require('@aws-sdk/client-ssm');
 const { RAMClient, ListResourcesCommand } = require('@aws-sdk/client-ram');
 const { SQSClient, SendMessageBatchCommand, SendMessageCommand } = require('@aws-sdk/client-sqs');
 
-const { SqsEmitter } = require('../lib');
+const { SqsEmitter, SqsEmitterError } = require('../lib');
 const ParameterStore = require('../lib/helpers/parameter-store');
 const S3Uploader = require('../lib/helpers/s3-uploader');
 
@@ -428,6 +428,75 @@ describe('SqsEmitter', () => {
 
 		});
 
+		it('Should reject with S3_ERROR and not call SQS if a payload greater than 256KB cannot be uploaded to any S3 bucket', async () => {
+
+			ramMock.on(ListResourcesCommand).resolves({
+				resources: [{ arn: parameterNameStoreArn }]
+			});
+
+			ssmMock.on(GetParameterCommand).resolves({
+				Parameter: {
+					Value: JSON.stringify(buckets)
+				}
+			});
+
+			s3Mock.on(PutObjectCommand).rejects(new Error('Error fetching S3'));
+
+			sqsMock.on(SendMessageCommand);
+
+			await assert.rejects(() => this.sqsEmitter.publishEvent(sampleSqsUrl, {
+				payloadFixedProperties: ['bar'],
+				content: {
+					bar: 'bar',
+					foo: 'x'.repeat(256 * 1024)
+				}
+			}), {
+				name: 'SqsEmitterError',
+				message: 'Failed to upload to all provided s3 buckets',
+				code: SqsEmitterError.codes.S3_ERROR
+			});
+
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 2);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 0);
+		});
+
+		it('Should use s3 content path if the event is lower than 256KB in characters but greater in bytes', async () => {
+
+			ramMock.on(ListResourcesCommand).resolves({
+				resources: [{ arn: parameterNameStoreArn }]
+			});
+
+			ssmMock.on(GetParameterCommand).resolves({
+				Parameter: {
+					Value: JSON.stringify(buckets)
+				}
+			});
+
+			s3Mock.on(PutObjectCommand).resolves({
+				ETag: '5d41402abc4b2a76b9719d911017c590'
+			});
+
+			sqsMock.on(SendMessageCommand).resolves({
+				MessageId: '4ac0a219-1122-33b3-4445-5556666d734d'
+			});
+
+			// 150K characters (< 256KB) but 300KB in UTF-8
+			const content = { foo: 'ñ'.repeat(150 * 1024) };
+
+			const result = await this.sqsEmitter.publishEvent(sampleSqsUrl, { content });
+
+			assert.deepStrictEqual(result, { messageId: '4ac0a219-1122-33b3-4445-5556666d734d' });
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 1);
+			assertS3PutObjectCommand(content);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand).length, 1);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageCommand)[0].args[0].input.MessageBody, JSON.stringify({
+				contentS3Location: {
+					path: contentS3Path,
+					bucketName: buckets[0].bucketName,
+					region: buckets[0].region
+				}
+			}));
+		});
 	});
 
 	describe('publishEvents', () => {
@@ -1077,6 +1146,20 @@ describe('SqsEmitter', () => {
 					}
 				]
 			}, true).length, 1);
+		});
+
+		it('Should split events in different batches if their total size is greater than 256KB in bytes but lower in characters', async () => {
+
+			sqsMock.on(SendMessageBatchCommand).resolves({});
+
+			// 70K characters each (140K in total) but 140KB each in UTF-8
+			await this.sqsEmitter.publishEvents(sampleSqsUrl, [
+				{ content: { foo: 'ñ'.repeat(70 * 1024) } },
+				{ content: { foo: 'ñ'.repeat(70 * 1024) } }
+			]);
+
+			assert.deepStrictEqual(s3Mock.commandCalls(PutObjectCommand).length, 0);
+			assert.deepStrictEqual(sqsMock.commandCalls(SendMessageBatchCommand).length, 2);
 		});
 
 		it('Should split events in batches not greater than 10 entries', async () => {

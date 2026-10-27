@@ -19,7 +19,7 @@ npm install @janiscommerce/sqs-emitter
 ## Usage
 
 ```js
-const SqsEmitter = require('@janiscommerce/sqs-emitter');
+const { SqsEmitter } = require('@janiscommerce/sqs-emitter');
 ```
 
 ### SQS Emitter
@@ -54,11 +54,13 @@ const result = await sqsEmitter.publishEvent('https://sqs.us-east-1.amazonaws.co
  * Sample Output
  *
  * {
- *  MessageId: '8563a94f-59f3-4843-8b16-a012867fe97e',
- *  SequenceNumber: '' // For FIFO topics only
+ *  messageId: '8563a94f-59f3-4843-8b16-a012867fe97e',
+ *  sequenceNumber: '18889007921482248832' // For FIFO queues only
  * }
  */
 ```
+
+> If the event exceeds the 256KB limit and the payload can't be uploaded to any S3 bucket, `publishEvent` rejects with a `SqsEmitterError` with code `S3_ERROR` and nothing is sent to SQS.
 
 #### Publish multiple events
 
@@ -107,10 +109,13 @@ const result = await sqsEmitter.publishEvents('https://sqs.us-east-1.amazonaws.c
  *  failed: [
  *   {
  *    Id: '2',
- *    errorCode: 'SQS001',
- *    errorMessage: 'SQS Failed'
+ *    SenderFault: true,
+ *    Code: 'SQS001',
+ *    Message: 'SQS Failed'
  *   }
  *  ]
  * }
  */
 ```
+
+> `failed` entries rejected by SQS keep the SQS format (`Id`, `SenderFault`, `Code`, `Message`). Events exceeding 256KB whose payload can't be uploaded to any S3 bucket are not sent and are reported as `{ Id, Code: 'S3_ERROR', Message: 'Failed to upload to all provided s3 buckets' }`.
