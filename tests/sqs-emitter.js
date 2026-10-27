@@ -1292,7 +1292,7 @@ describe('SqsEmitter', () => {
 				clientCode: 'defaultClient',
 				failedCount: 1,
 				totalCount: 2,
-				failed: [{ Id: '2', Code: 'SQS001', Message: 'SQS Failed', SenderFault: true }]
+				failedSample: [{ Id: '2', Code: 'SQS001', Message: 'SQS Failed', SenderFault: true }]
 			});
 
 			assert.ok(!JSON.stringify(loggerErrorStub.args).match(/personal-|should-not-be-logged/));
@@ -1312,7 +1312,7 @@ describe('SqsEmitter', () => {
 				sqsName: 'MySQSName',
 				failedCount: 1,
 				totalCount: 1,
-				failed: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
+				failedSample: [{ Id: '1', Code: 'SQS001', Message: 'SQS Failed' }]
 			});
 		});
 
@@ -1332,7 +1332,7 @@ describe('SqsEmitter', () => {
 
 			assert.deepStrictEqual(metadata.failedCount, 25);
 			assert.deepStrictEqual(metadata.totalCount, 25);
-			assert.deepStrictEqual(metadata.failed.map(({ Id }) => Id), Array.from({ length: 10 }, (_, index) => `${index + 1}`));
+			assert.deepStrictEqual(metadata.failedSample.map(({ Id }) => Id), Array.from({ length: 10 }, (_, index) => `${index + 1}`));
 		});
 
 		it('Should not log when there are no failed entries', async () => {
