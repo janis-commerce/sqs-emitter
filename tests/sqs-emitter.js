@@ -111,6 +111,20 @@ describe('SqsEmitter', () => {
 			assert.strictEqual(firstCall.thisValue, secondCall.thisValue);
 		});
 
+		it('Should use a different S3 client for each region', async () => {
+
+			s3Mock.on(PutObjectCommand).resolves({ ETag: 'etag' });
+
+			await S3Uploader.uploadToBucket(buckets[0], contentS3Path, 'body');
+			await S3Uploader.uploadToBucket(buckets[1], contentS3Path, 'body');
+
+			const [firstCall, secondCall] = s3Mock.calls();
+
+			assert.notStrictEqual(firstCall.thisValue, secondCall.thisValue);
+			assert.strictEqual(await firstCall.thisValue.config.region(), buckets[0].region);
+			assert.strictEqual(await secondCall.thisValue.config.region(), buckets[1].region);
+		});
+
 		it('Should reuse the SSM and RAM clients between parameter lookups', async () => {
 
 			ramMock.on(ListResourcesCommand).resolves({ resources: [{ arn: parameterNameStoreArn }] });
