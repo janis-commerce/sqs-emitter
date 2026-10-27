@@ -13,6 +13,7 @@ const { SQSClient, SendMessageBatchCommand, SendMessageCommand } = require('@aws
 
 const { SqsEmitter } = require('../lib');
 const ParameterStore = require('../lib/helpers/parameter-store');
+const S3Uploader = require('../lib/helpers/s3-uploader');
 
 describe('SqsEmitter', () => {
 
@@ -86,6 +87,41 @@ describe('SqsEmitter', () => {
 		clock.restore();
 		sinon.restore();
 		ParameterStore.clearCache();
+	});
+
+	describe('AWS clients reuse', () => {
+
+		it('Should share the SQS client between instances', () => {
+			assert.strictEqual(new SqsEmitter().sqs, new SqsEmitter().sqs);
+		});
+
+		it('Should reuse the S3 client for uploads to the same region', async () => {
+
+			s3Mock.on(PutObjectCommand).resolves({ ETag: 'etag' });
+
+			await S3Uploader.uploadToBucket(buckets[0], contentS3Path, 'body');
+			await S3Uploader.uploadToBucket(buckets[0], contentS3Path, 'body');
+
+			const [firstCall, secondCall] = s3Mock.calls();
+
+			assert.strictEqual(firstCall.thisValue, secondCall.thisValue);
+		});
+
+		it('Should reuse the SSM and RAM clients between parameter lookups', async () => {
+
+			ramMock.on(ListResourcesCommand).resolves({ resources: [{ arn: parameterNameStoreArn }] });
+			ssmMock.on(GetParameterCommand).resolves({ Parameter: { Value: JSON.stringify(buckets) } });
+
+			await ParameterStore.getParameterValue();
+			ParameterStore.clearCache();
+			await ParameterStore.getParameterValue();
+
+			const [firstSsmCall, secondSsmCall] = ssmMock.calls();
+			const [firstRamCall, secondRamCall] = ramMock.calls();
+
+			assert.strictEqual(firstSsmCall.thisValue, secondSsmCall.thisValue);
+			assert.strictEqual(firstRamCall.thisValue, secondRamCall.thisValue);
+		});
 	});
 
 	describe('publishEvent', () => {
